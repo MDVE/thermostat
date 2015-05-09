@@ -44,6 +44,7 @@ last_temp_fetch = datetime.datetime.now() - datetime.timedelta(1)
 rolling_temp_values = []
 current_temp = 72.0
 
+# maxCenterText
 lastfont = None
 lastfontname = ''
 lastfontsize = 16
@@ -89,7 +90,9 @@ v = {
     "minimum_heat1_off_secs": 1,
     "minimum_heat2_off_secs": 1,
     "minimum_heat3_off_secs": 1,
+    "hot_cold_hysteresis": 5.0,
     "switch_heat-off-cool": 0, # MODE_ constants
+    "auto_hot_or_cold_mode": 1, # MODE_ constants
     "relays": {
         "W1": { "gpio": 17, "pin": 11, "active": False, "do-not-use": False,
             "last-on": datetime.datetime.now() - datetime.timedelta(1), "last-off": datetime.datetime.now() - datetime.timedelta(1) },
@@ -214,6 +217,7 @@ def screen_sysfunc_cb(button, n): # normal display
     global screenMode
     global v
 
+    #v['switch_heat-off-cool'] = n
     if n == MODE_OFF:
         v['switch_heat-off-cool'] = MODE_OFF
     elif n == MODE_HEAT:
@@ -221,6 +225,9 @@ def screen_sysfunc_cb(button, n): # normal display
     elif n == MODE_COOL:
         v['switch_heat-off-cool'] = MODE_COOL
     elif n == MODE_AUTO:
+        v['auto_hot_or_cold_mode'] = MODE_HEAT
+        if v['switch_heat-off-cool'] == MODE_COOL:
+            v['auto_hot_or_cold_mode'] = MODE_COOL
         v['switch_heat-off-cool'] = MODE_AUTO
         
 def screen_fb_cb(button, n):
@@ -249,6 +256,26 @@ def screen_main_draw(panel): # normal display
     v['fontsize_main_1'] = centerMaxText(screen, z, fgcolor, (50, 145, 160, 35), allfonts[v['FontIndex']], v.get('fontsize_main_1', 28))
     z = "System is {0}".format(MODES[v.get("switch_heat-off-cool", MODE_OFF)])
     v['fontsize_main_2'] = centerMaxText(screen, z, fgcolor, (70, 180, 180, 30), allfonts[v['FontIndex']], v.get('fontsize_main_2', 14))
+
+    z = 0
+    ic = "blank30x30"
+    if v.get("switch_heat-off-cool", MODE_OFF) == MODE_HEAT \
+            or (v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO and v.get("auto_hot_or_cold_mode", MODE_HEAT) == MODE_HEAT):
+        ic = "blueflame30x30"
+        z += 1 if v["relays"]["W1"]["active"] else 0
+        z += 1 if v["relays"]["W2"]["active"] else 0
+        z += 1 if v["relays"]["W3"]["active"] else 0
+    elif v.get("switch_heat-off-cool", MODE_OFF) == MODE_COOL \
+            or (v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO and v.get("auto_hot_or_cold_mode", MODE_HEAT) == MODE_COOL):
+        ic = "snowflake30x30"
+        z += 1 if v["relays"]["Y1"]["active"] else 0
+        z += 1 if v["relays"]["Y2"]["active"] else 0
+    for b in panel.buttons:
+        if b.iconBg and b.iconBg.name.endswith('30x30'):
+            if z >= b.value:
+                b.bg = ic
+            else:
+                b.bg = "blank30x30"
 
 def screen_sysfunc_draw(panel):
     global screenMode
@@ -291,6 +318,8 @@ panels = {
         Button((50, 20, 160, 120), color=(20,20,20)),
         Button((230, 20, 60, 60), bg='up', cb=screen_main_cb, value=2),
         Button((230, 90, 60, 60), bg='down', cb=screen_main_cb, value=3),
+        Button((65, 210, 30, 30), bg='blank30x30', value=1),
+        Button((95, 210, 30, 30), bg='blank30x30', value=2),
         Button((0, 180, 60, 60), bg='left', cb=screen_fb_cb, value=3),
         Button((260, 180, 60, 60), bg='right', cb=screen_fb_cb, value=2)]),
     "system-function": Panel("system-function", False, screen_sysfunc_draw, 
@@ -511,8 +540,14 @@ def act_on_temp(when):
                 gpio.digitalWrite(v["relays"]["Y1"]["gpio"], 0)
                 v["relays"]["Y1"]["last-off"] = when
                 v["relays"]["Y1"]["active"] = False
+        # adjust automatic
+        if v.get("auto_hot_or_cold_mode", MODE_HEAT) == MODE_COOL and v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO \
+                and (v.get('target_temp', 72.0) - comparable_temp) > v.get("hot_cold_hysteresis", 5.0):
+            log_info("it's cold (target: {0:3.1f}, now: {1:3.1f}), switching to heat (automatic) mode".format(v['target_temp'], comparable_temp))
+            v["auto_hot_or_cold_mode"] = MODE_HEAT
         # are any heat stages off?
-        if (v.get("switch_heat-off-cool", MODE_OFF) == MODE_HEAT or v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO) \
+        if (v.get("switch_heat-off-cool", MODE_OFF) == MODE_HEAT \
+                or (v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO and v.get("auto_hot_or_cold_mode", MODE_HEAT) == MODE_HEAT)) \
                 and ((not v["relays"]["W1"]["active"] and not v["relays"]["W1"]["do-not-use"]) \
                 or (not v["relays"]["W2"]["active"] and not v["relays"]["W2"]["do-not-use"]) \
                 or (not v["relays"]["W3"]["active"] and not v["relays"]["W3"]["do-not-use"])):
@@ -582,8 +617,14 @@ def act_on_temp(when):
                 gpio.digitalWrite(v["relays"]["W1"]["gpio"], 0)
                 v["relays"]["W1"]["last-off"] = when
                 v["relays"]["W1"]["active"] = False
+        # adjust automatic
+        if v.get("auto_hot_or_cold_mode", MODE_HEAT) == MODE_HEAT and v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO \
+                and (comparable_temp - v.get('target_temp', 72.0)) > v.get("hot_cold_hysteresis", 5.0):
+            log_info("it's hot (target: {0:3.1f}, now: {1:3.1f}), switching to cool (automatic) mode".format(v['target_temp'], comparable_temp))
+            v["auto_hot_or_cold_mode"] = MODE_COOL
         # are any cool stages off?
-        if (v.get("switch_heat-off-cool", MODE_OFF) == MODE_COOL or v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO) \
+        if (v.get("switch_heat-off-cool", MODE_OFF) == MODE_COOL \
+                or (v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO and v.get("auto_hot_or_cold_mode", MODE_HEAT) == MODE_COOL)) \
                 and (((not v["relays"]["Y1"]["active"]) and (not v["relays"]["Y1"]["do-not-use"])) \
                 or ((not v["relays"]["Y2"]["active"]) and (not v["relays"]["Y2"]["do-not-use"]))):
             #log_info("We should turn on the cool!")
