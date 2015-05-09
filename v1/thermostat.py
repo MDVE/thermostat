@@ -28,8 +28,8 @@ import math
 
 DEBUG = True
 simulation = 0.0
-simulation_period = 120.0
-simulation_flux = 20.0
+simulation_period = 180.0
+simulation_flux = 10.0
 simulation_center = 70.0
 
 iconPath = 'icons'
@@ -48,37 +48,48 @@ lastfont = None
 lastfontname = ''
 lastfontsize = 16
 
+# silly constants
+
+MODE_HEAT = 1
+MODE_OFF = 0
+MODE_COOL = 2
+MODE_AUTO = 3
+MODES = { MODE_OFF: "Off", MODE_HEAT: "Heating", MODE_COOL: "Cooling", MODE_AUTO: "Automatic"}
+
+# persistant config variables
+
 v = {
     "mode-24hour": False,
-    "sensor_compensation": -18.0,
+    "sensor_compensation": 0.0,
     "FontIndex": 0, 
     "leading-zero": False,
     "temperature_in_F": True,
-    "number_of_temps_to_avg": 60,
+    "number_of_temps_to_avg": 10,
     "minimum_target_temp": 10.0,
     "maximum_target_temp": 110.0,
-    "target_temp": 72.0,
+    "target_temp": 70.0,
     "target_increment": 0.5,
     "heat1_on_hysteresis": 2.5,
-    "heat1_off_hysteresis": 2.5,
+    "heat1_off_hysteresis": 1,
     "heat2_on_hysteresis": 2.5,
-    "heat2_off_hysteresis": 2.5,
+    "heat2_off_hysteresis": 0.5,
     "heat3_on_hysteresis": 2.5,
-    "heat3_off_hysteresis": 2.5,
+    "heat3_off_hysteresis": 0,
     "cool1_on_hysteresis": 2.5,
-    "cool1_off_hysteresis": 2.5,
+    "cool1_off_hysteresis": 1,
     "cool2_on_hysteresis": 2.5,
-    "cool2_off_hysteresis": 2.5,
-    "minimum_cool1_on_secs": 240,
-    "minimum_cool2_on_secs": 240,
-    "minimum_cool1_off_secs": 240,
-    "minimum_cool2_off_secs": 240,
-    "minimum_heat1_on_secs": 120,
-    "minimum_heat2_on_secs": 120,
-    "minimum_heat3_on_secs": 120,
-    "minimum_heat1_off_secs": 120,
-    "minimum_heat2_off_secs": 120,
-    "minimum_heat3_off_secs": 120,
+    "cool2_off_hysteresis": 0,
+    "minimum_cool1_on_secs": 1,
+    "minimum_cool2_on_secs": 1,
+    "minimum_cool1_off_secs": 1,
+    "minimum_cool2_off_secs": 1,
+    "minimum_heat1_on_secs": 1,
+    "minimum_heat2_on_secs": 1,
+    "minimum_heat3_on_secs": 1,
+    "minimum_heat1_off_secs": 1,
+    "minimum_heat2_off_secs": 1,
+    "minimum_heat3_off_secs": 1,
+    "switch_heat-off-cool": 0, # MODE_ constants
     "relays": {
         "W1": { "gpio": 17, "pin": 11, "active": False, "do-not-use": False,
             "last-on": datetime.datetime.now() - datetime.timedelta(1), "last-off": datetime.datetime.now() - datetime.timedelta(1) },
@@ -186,7 +197,7 @@ class Panel:
 
 ###############################################################################################################
 
-def screen_main_cb(button, n): # normal display
+def screen_main_cb(button, n):
     global screenMode
     global v
     
@@ -198,28 +209,33 @@ def screen_main_cb(button, n): # normal display
         v['target_temp'] = v.get('target_temp', 72.0) - v.get('target_increment', 0.5)
         if v['target_temp'] < v.get("minimum_target_temp", 0.0):
             v['target_temp'] = v.get("minimum_target_temp", 0.0)
-    elif n == 4:
-        screenMode = "empty"
-    elif n == 5:
-        screenMode = "duh"
 
-def screen_duh_cb(button, n): # normal display
+def screen_sysfunc_cb(button, n): # normal display
     global screenMode
     global v
-    
-    if n == 2:
+
+    if n == MODE_OFF:
+        v['switch_heat-off-cool'] = MODE_OFF
+    elif n == MODE_HEAT:
+        v['switch_heat-off-cool'] = MODE_HEAT
+    elif n == MODE_COOL:
+        v['switch_heat-off-cool'] = MODE_COOL
+    elif n == MODE_AUTO:
+        v['switch_heat-off-cool'] = MODE_AUTO
+        
+def screen_fb_cb(button, n):
+    global screenMode
+
+    if n == 1:
         screenMode = "main"
+    elif n == 2:
+        screenMode = "system-function"
     elif n == 3:
-        screenMode = "empty"
+        screenMode = "empty"    
 
 def screen_empty_cb(button, n): # normal display
     global screenMode
     global v
-    
-    if n == 2:
-        screenMode = "duh"
-    elif n == 3:
-        screenMode = "main"
 
 def screen_main_draw(panel): # normal display
     global screenMode
@@ -229,15 +245,32 @@ def screen_main_draw(panel): # normal display
 
     z = "{0:3.1f}".format(v.get('target_temp', 72.0))
     v['fontsize_main_0'] = centerMaxText(screen, z, fgcolor, (50, 20, 160, 120), allfonts[v['FontIndex']], v.get('fontsize_main_0', 82))
-    #if DEBUG:
-    #    centerMaxText(screen, str(v['fontsize_main_0']), (0,0,255), (50, 20, 160, 120), allfonts[0], v['fontsize_main_0'])
-
     z = "currently {0} {1}".format(get_display_temp(when), "F" if v.get('temperature_in_F', True) else "C")
     v['fontsize_main_1'] = centerMaxText(screen, z, fgcolor, (50, 145, 160, 35), allfonts[v['FontIndex']], v.get('fontsize_main_1', 28))
-    #if DEBUG:
-    #    centerMaxText(screen, str(v['fontsize_main_1']), (0,0,255), (50, 145, 160, 35), allfonts[0], v['fontsize_main_1'])
+    z = "System is {0}".format(MODES[v.get("switch_heat-off-cool", MODE_OFF)])
+    v['fontsize_main_2'] = centerMaxText(screen, z, fgcolor, (70, 180, 180, 30), allfonts[v['FontIndex']], v.get('fontsize_main_2', 14))
 
-def screen_duh_draw(panel): # normal display
+def screen_sysfunc_draw(panel):
+    global screenMode
+    global v
+    
+    z = "auto"
+    v['fontsize_sysfunc_0'] = centerMaxText(screen, z, fgcolor, (65, 0, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_0', 28))
+    z = "off"
+    v['fontsize_sysfunc_0'] = centerMaxText(screen, z, fgcolor, (65, 65, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_0', 28))
+    z = "heat"
+    v['fontsize_sysfunc_0'] = centerMaxText(screen, z, fgcolor, (225, 0, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_0', 28))
+    z = "cool"
+    v['fontsize_sysfunc_0'] = centerMaxText(screen, z, fgcolor, (225, 65, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_0', 28))
+    
+    for b in panel.buttons:
+        if b.iconBg and b.iconBg.name.endswith('selected'):
+            if b.value == v.get("switch_heat-off-cool", MODE_OFF):
+                b.bg = 'selected'
+            else:
+                b.bg = 'unselected'
+
+def screen_clock_draw(panel): # normal display
     global screenMode
     global v
     
@@ -258,16 +291,22 @@ panels = {
         Button((50, 20, 160, 120), color=(20,20,20)),
         Button((230, 20, 60, 60), bg='up', cb=screen_main_cb, value=2),
         Button((230, 90, 60, 60), bg='down', cb=screen_main_cb, value=3),
-        Button((0, 180, 60, 60), bg='left', cb=screen_main_cb, value=4),
-        Button((260, 180, 60, 60), bg='right', cb=screen_main_cb, value=5)]),
-    "duh": Panel("duh", False, screen_duh_draw, 
-        [Button((0,  0, 320, 240), bg='box', color=(80,0,80), cb=screen_duh_cb, value=1),
-        Button((0, 180, 60, 60), bg='left', cb=screen_duh_cb, value=2),
-        Button((260, 180, 60, 60), bg='right', cb=screen_duh_cb, value=3)]),
+        Button((0, 180, 60, 60), bg='left', cb=screen_fb_cb, value=3),
+        Button((260, 180, 60, 60), bg='right', cb=screen_fb_cb, value=2)]),
+    "system-function": Panel("system-function", False, screen_sysfunc_draw, 
+        [Button((0,  0, 320, 240), bg='box', color=(80,0,80)),
+        Button((0, 0, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=3),
+        Button((0, 70, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=0),
+        Button((160, 0, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=1),
+        Button((160, 70, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=2),
+        Button((0, 180, 60, 60), bg='left', cb=screen_fb_cb, value=1),
+        Button((90, 180, 140, 60), bg='ok', cb=screen_fb_cb, value=1),
+        Button((260, 180, 60, 60), bg='right', cb=screen_fb_cb, value=3)]),
     "empty": Panel("empty", False, None, 
         [Button((0,  0, 320, 240), bg='box', color=(0,0,0), cb=screen_empty_cb, value=1),
-        Button((0, 180, 60, 60), bg='left', cb=screen_empty_cb, value=2),
-        Button((260, 180, 60, 60), bg='right', cb=screen_empty_cb, value=3)]),
+        Button((0, 180, 60, 60), bg='left', cb=screen_fb_cb, value=2),
+        Button((90, 180, 140, 60), bg='ok', cb=screen_fb_cb, value=1),
+        Button((260, 180, 60, 60), bg='right', cb=screen_fb_cb, value=1)]),
 }
 
 ###############################################################################################################
@@ -362,7 +401,7 @@ def get_display_temp(when):
             simulation += (360.0 / simulation_period)
             if simulation >= 360.0:
                 simulation -= 360.0
-            current_temp = simulation_center + (simulation_flux * math.sin(math.radians(simulation))) # - v.get("sensor_compensation", 0.0)
+            current_temp = simulation_center + simulation_flux * math.sin(math.radians(simulation)) # - v.get("sensor_compensation", 0.0)
         else:
             if v.get('temperature_in_F', True): # Fahrenheit
                 current_temp = si705X.get_tempF()
@@ -455,7 +494,7 @@ def act_on_temp(when):
     if comparable_temp < v.get('target_temp', 72.0):
         #log_info("It is colder than we want it to be")
         # are any cool stages on?
-        if v["relays"]["Y1"]["active"] or v["relays"]["Y2"]["active"]:
+        if (v["relays"]["Y1"]["active"] or v["relays"]["Y2"]["active"]):
             #log_info("We should turn off the cool!")
             # Has it been on long enough?
             if v["relays"]["Y2"]["active"] \
@@ -473,14 +512,19 @@ def act_on_temp(when):
                 v["relays"]["Y1"]["last-off"] = when
                 v["relays"]["Y1"]["active"] = False
         # are any heat stages off?
-        if (not v["relays"]["W1"]["active"] and not v["relays"]["W1"]["do-not-use"]) \
-            or (not v["relays"]["W2"]["active"] and not v["relays"]["W2"]["do-not-use"]) \
-            or (not v["relays"]["W3"]["active"] and not v["relays"]["W3"]["do-not-use"]):
+        if (v.get("switch_heat-off-cool", MODE_OFF) == MODE_HEAT or v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO) \
+                and ((not v["relays"]["W1"]["active"] and not v["relays"]["W1"]["do-not-use"]) \
+                or (not v["relays"]["W2"]["active"] and not v["relays"]["W2"]["do-not-use"]) \
+                or (not v["relays"]["W3"]["active"] and not v["relays"]["W3"]["do-not-use"])):
             #log_info("We should turn on the heat!")
             # Has it been off long enough?
             if not v["relays"]["W1"]["active"] \
                     and not v["relays"]["W1"]["do-not-use"] \
                     and (when - v["relays"]["W1"]["last-off"]) > datetime.timedelta(0, v.get("minimum_heat1_off_secs", 120)) \
+                    and not v["relays"]["Y1"]["active"] \
+                    and (when - v["relays"]["Y1"]["last-off"]) > datetime.timedelta(0, v.get("minimum_cool1_off_secs", 120)) \
+                    and not v["relays"]["Y2"]["active"] \
+                    and (when - v["relays"]["Y2"]["last-off"]) > datetime.timedelta(0, v.get("minimum_cool2_off_secs", 120)) \
                     and (v['target_temp'] - comparable_temp) > v.get('heat1_on_hysteresis', 2.5):
                 log_info("it's cold (target: {0:3.1f}, now: {1:3.1f}) and stage 1 heating is off, so turning it on".format(v['target_temp'], comparable_temp))
                 v["relays"]["W1"]["active"] = True
@@ -489,6 +533,10 @@ def act_on_temp(when):
             if not v["relays"]["W2"]["active"] \
                     and not v["relays"]["W2"]["do-not-use"] \
                     and (when - v["relays"]["W2"]["last-off"]) > datetime.timedelta(0, v.get("minimum_heat2_off_secs", 120)) \
+                    and not v["relays"]["Y1"]["active"] \
+                    and (when - v["relays"]["Y1"]["last-off"]) > datetime.timedelta(0, v.get("minimum_cool1_off_secs", 120)) \
+                    and not v["relays"]["Y2"]["active"] \
+                    and (when - v["relays"]["Y2"]["last-off"]) > datetime.timedelta(0, v.get("minimum_cool2_off_secs", 120)) \
                     and (v['target_temp'] - comparable_temp) > (v.get('heat2_on_hysteresis', 2.5) + v.get('heat1_on_hysteresis', 2.5)):
                 log_info("it's cold (target: {0:3.1f}, now: {1:3.1f}) and stage 2 heating is off, so turning it on".format(v['target_temp'], comparable_temp))
                 v["relays"]["W2"]["active"] = True
@@ -497,6 +545,10 @@ def act_on_temp(when):
             if not v["relays"]["W3"]["active"] \
                     and not v["relays"]["W3"]["do-not-use"] \
                     and (when - v["relays"]["W3"]["last-off"]) > datetime.timedelta(0, v.get("minimum_heat3_off_secs", 120)) \
+                    and not v["relays"]["Y1"]["active"] \
+                    and (when - v["relays"]["Y1"]["last-off"]) > datetime.timedelta(0, v.get("minimum_cool1_off_secs", 120)) \
+                    and not v["relays"]["Y2"]["active"] \
+                    and (when - v["relays"]["Y2"]["last-off"]) > datetime.timedelta(0, v.get("minimum_cool2_off_secs", 120)) \
                     and (v['target_temp'] - comparable_temp) > (v.get('heat3_on_hysteresis', 2.5) + v.get('heat2_on_hysteresis', 2.5) + v.get('heat1_on_hysteresis', 2.5)):
                 log_info("it's cold (target: {0:3.1f}, now: {1:3.1f}) and stage 3 heating is off, so turning it on".format(v['target_temp'], comparable_temp))
                 v["relays"]["W3"]["active"] = True
@@ -506,7 +558,7 @@ def act_on_temp(when):
     elif comparable_temp > v.get('target_temp', 72.0):
         #log_info("It is warmer than we want it to be")
         # are any heat stages on?
-        if v["relays"]["W1"]["active"] or v["relays"]["W2"]["active"] or v["relays"]["W3"]["active"]:
+        if (v["relays"]["W1"]["active"] or v["relays"]["W2"]["active"] or v["relays"]["W3"]["active"]):
             #log_info("We should turn off the heat!")
             # Has it been on long enough?
             if v["relays"]["W3"]["active"] \
@@ -531,13 +583,20 @@ def act_on_temp(when):
                 v["relays"]["W1"]["last-off"] = when
                 v["relays"]["W1"]["active"] = False
         # are any cool stages off?
-        if ((not v["relays"]["Y1"]["active"]) and (not v["relays"]["Y1"]["do-not-use"])) \
-            or ((not v["relays"]["Y2"]["active"]) and (not v["relays"]["Y2"]["do-not-use"])):
+        if (v.get("switch_heat-off-cool", MODE_OFF) == MODE_COOL or v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO) \
+                and (((not v["relays"]["Y1"]["active"]) and (not v["relays"]["Y1"]["do-not-use"])) \
+                or ((not v["relays"]["Y2"]["active"]) and (not v["relays"]["Y2"]["do-not-use"]))):
             #log_info("We should turn on the cool!")
             # Has it been off long enough?
             if not v["relays"]["Y1"]["active"] \
                     and not v["relays"]["Y1"]["do-not-use"] \
                     and (when - v["relays"]["Y1"]["last-off"]) > datetime.timedelta(0, v.get("minimum_cool1_off_secs", 120)) \
+                    and not v["relays"]["W1"]["active"] \
+                    and (when - v["relays"]["W1"]["last-off"]) > datetime.timedelta(0, v.get("minimum_heat1_off_secs", 120)) \
+                    and not v["relays"]["W2"]["active"] \
+                    and (when - v["relays"]["W2"]["last-off"]) > datetime.timedelta(0, v.get("minimum_heat2_off_secs", 120)) \
+                    and not v["relays"]["W3"]["active"] \
+                    and (when - v["relays"]["W3"]["last-off"]) > datetime.timedelta(0, v.get("minimum_heat3_off_secs", 120)) \
                     and (comparable_temp - v['target_temp']) > v.get('cool1_on_hysteresis', 2.5):
                 log_info("it's hot (target: {0:3.1f}, now: {1:3.1f}) and stage 1 cooling is off, so turning it on".format(v['target_temp'], comparable_temp))
                 v["relays"]["Y1"]["active"] = True
@@ -546,6 +605,12 @@ def act_on_temp(when):
             if not v["relays"]["Y2"]["active"] \
                     and not v["relays"]["Y2"]["do-not-use"] \
                     and (when - v["relays"]["Y2"]["last-off"]) > datetime.timedelta(0, v.get("minimum_cool2_off_secs", 120)) \
+                    and not v["relays"]["W1"]["active"] \
+                    and (when - v["relays"]["W1"]["last-off"]) > datetime.timedelta(0, v.get("minimum_heat1_off_secs", 120)) \
+                    and not v["relays"]["W2"]["active"] \
+                    and (when - v["relays"]["W2"]["last-off"]) > datetime.timedelta(0, v.get("minimum_heat2_off_secs", 120)) \
+                    and not v["relays"]["W3"]["active"] \
+                    and (when - v["relays"]["W3"]["last-off"]) > datetime.timedelta(0, v.get("minimum_heat3_off_secs", 120)) \
                     and (comparable_temp - v['target_temp']) > (v.get('cool2_on_hysteresis', 2.5) + v.get('cool1_on_hysteresis', 2.5)):
                 log_info("it's hot (target: {0:3.1f}, now: {1:3.1f}) and stage 2 cooling is off, so turning it on".format(v['target_temp'], comparable_temp))
                 v["relays"]["Y2"]["active"] = True
@@ -578,6 +643,14 @@ if __name__ == '__main__':
     # Initialization -----------------------------------------------------------
     log_info("Initializing...")
     read_persistent_vars()
+    
+    if not v["relays"]:
+        log_error("Relays not defined")
+        try:
+            os.unlink(pidfile)
+        except:
+            pass
+        exit(-1)
 
     # Init framebuffer/touchscreen environment variables
     os.putenv('SDL_VIDEODRIVER', 'fbcon')
@@ -613,7 +686,7 @@ if __name__ == '__main__':
                     b.bg = None # Name no longer used; allow garbage collection
                 if b.fg == i.name:
                     b.iconFg = i
-                    b.fg = None
+                    b.fg = None # Name no longer used; allow garbage collection
     
     # Set up GPIO pins
     log_info("Initializing GPIO pins...")
