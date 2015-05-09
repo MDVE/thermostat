@@ -57,6 +57,10 @@ MODE_COOL = 2
 MODE_AUTO = 3
 MODES = { MODE_OFF: "Off", MODE_HEAT: "Heating", MODE_COOL: "Cooling", MODE_AUTO: "Automatic"}
 
+FAN_AUTO = 0
+FAN_ON = 1
+FANS = { FAN_AUTO: "Auto", FAN_ON: "On" }
+
 # persistant config variables
 
 v = {
@@ -90,6 +94,9 @@ v = {
     "minimum_heat1_off_secs": 1,
     "minimum_heat2_off_secs": 1,
     "minimum_heat3_off_secs": 1,
+    "minimum_fan_on_secs": 1,
+    "minimum_fan_off_secs": 1,
+    "switch_fan-auto-on": 0, # FAN_ constants
     "hot_cold_hysteresis": 5.0,
     "switch_heat-off-cool": 0, # MODE_ constants
     "auto_hot_or_cold_mode": 1, # MODE_ constants
@@ -123,6 +130,7 @@ class Button:
         self.color    = None # Background fill color, if any
         self.iconBg   = None # Background Icon (atop color fill)
         self.iconFg   = None # Foreground Icon (atop background)
+        self.panel    = None # the panel that owns this button, set at initialization
         self.bg       = None # Background Icon name
         self.fg       = None # Foreground Icon name
         self.callback = None # Callback function
@@ -185,9 +193,9 @@ class Panel:
     
     buttons = []
     
-    def __init__(self, name, isstatic, draw_func, buttons):
+    def __init__(self, name, draw_func, buttons):
         self.name = name
-        self.isstatic = isstatic
+        self.isstatic = False
         self.draw_func = draw_func
         self.buttons = buttons
 
@@ -213,22 +221,48 @@ def screen_main_cb(button, n):
         if v['target_temp'] < v.get("minimum_target_temp", 0.0):
             v['target_temp'] = v.get("minimum_target_temp", 0.0)
 
-def screen_sysfunc_cb(button, n): # normal display
-    global screenMode
+def screen_sysfunc_cb(button, n):
     global v
 
     #v['switch_heat-off-cool'] = n
     if n == MODE_OFF:
+        log_info("Changing mode to {0}".format(MODES[MODE_OFF]))
         v['switch_heat-off-cool'] = MODE_OFF
+        if button.panel:
+            button.panel.static = False
     elif n == MODE_HEAT:
+        log_info("Changing mode to {0}".format(MODES[MODE_HEAT]))
         v['switch_heat-off-cool'] = MODE_HEAT
+        if button.panel:
+            button.panel.static = False
     elif n == MODE_COOL:
+        log_info("Changing mode to {0}".format(MODES[MODE_COOL]))
         v['switch_heat-off-cool'] = MODE_COOL
+        if button.panel:
+            button.panel.static = False
     elif n == MODE_AUTO:
+        log_info("Changing mode to {0}".format(MODES[MODE_AUTO]))
         v['auto_hot_or_cold_mode'] = MODE_HEAT
         if v['switch_heat-off-cool'] == MODE_COOL:
             v['auto_hot_or_cold_mode'] = MODE_COOL
         v['switch_heat-off-cool'] = MODE_AUTO
+        if button.panel:
+            button.panel.static = False
+        
+def screen_fanfunc_cb(button, n):
+    global v
+
+    #v['switch_fan-auto-on'] = n
+    if n == FAN_AUTO:
+        log_info("Changing fan to {0}".format(FANS[FAN_AUTO]))
+        v['switch_fan-auto-on'] = FAN_AUTO
+        if button.panel:
+            button.panel.static = False
+    if n == FAN_ON:
+        log_info("Changing fan to {0}".format(FANS[FAN_ON]))
+        v['switch_fan-auto-on'] = FAN_ON
+        if button.panel:
+            button.panel.static = False
         
 def screen_fb_cb(button, n):
     global screenMode
@@ -236,9 +270,11 @@ def screen_fb_cb(button, n):
     if n == 1:
         screenMode = "main"
     elif n == 2:
-        screenMode = "system-function"
+        screenMode = "system_function"
     elif n == 3:
-        screenMode = "empty"    
+        screenMode = "fan_function"    
+    elif n == 4:
+        screenMode = "clock"    
 
 def screen_empty_cb(button, n): # normal display
     global screenMode
@@ -272,7 +308,12 @@ def screen_main_draw(panel): # normal display
         z += 1 if v["relays"]["Y2"]["active"] else 0
     for b in panel.buttons:
         if b.iconBg and b.iconBg.name.endswith('30x30'):
-            if z >= b.value:
+            if b.value == 4:
+                if v["relays"]["G"]["active"]:
+                    b.bg = "fan30x30"
+                else:
+                    b.bg = "blank30x30"
+            elif z >= b.value:
                 b.bg = ic
             else:
                 b.bg = "blank30x30"
@@ -281,14 +322,16 @@ def screen_sysfunc_draw(panel):
     global screenMode
     global v
     
+    z = "System Function"
+    v['fontsize_sysfunc_0'] = centerMaxText(screen, z, fgcolor, (0, 0, 320, 35), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_0', 28))
     z = "auto"
-    v['fontsize_sysfunc_0'] = centerMaxText(screen, z, fgcolor, (65, 0, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_0', 28))
+    v['fontsize_sysfunc_1'] = centerMaxText(screen, z, fgcolor, (65, 40, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_1', 28))
     z = "off"
-    v['fontsize_sysfunc_0'] = centerMaxText(screen, z, fgcolor, (65, 65, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_0', 28))
+    v['fontsize_sysfunc_1'] = centerMaxText(screen, z, fgcolor, (65, 115, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_1', 28))
     z = "heat"
-    v['fontsize_sysfunc_0'] = centerMaxText(screen, z, fgcolor, (225, 0, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_0', 28))
+    v['fontsize_sysfunc_1'] = centerMaxText(screen, z, fgcolor, (225, 40, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_1', 28))
     z = "cool"
-    v['fontsize_sysfunc_0'] = centerMaxText(screen, z, fgcolor, (225, 65, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_0', 28))
+    v['fontsize_sysfunc_1'] = centerMaxText(screen, z, fgcolor, (225, 115, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_1', 28))
     
     for b in panel.buttons:
         if b.iconBg and b.iconBg.name.endswith('selected'):
@@ -296,46 +339,68 @@ def screen_sysfunc_draw(panel):
                 b.bg = 'selected'
             else:
                 b.bg = 'unselected'
+    panel.static = True
 
-def screen_clock_draw(panel): # normal display
+def screen_fanfunc_draw(panel):
     global screenMode
     global v
     
-    fontsugsz0 = 12
+    z = "Fan Function"
+    v['fontsize_fanfunc_0'] = centerMaxText(screen, z, fgcolor, (0, 0, 320, 35), allfonts[v['FontIndex']], v.get('fontsize_fanfunc_0', 28))
+    z = "auto"
+    v['fontsize_fanfunc_1'] = centerMaxText(screen, z, fgcolor, (65, 40, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_1', 28))
+    z = "on"
+    v['fontsize_sysfunc_1'] = centerMaxText(screen, z, fgcolor, (225, 40, 90, 60), allfonts[v['FontIndex']], v.get('fontsize_sysfunc_1', 28))
+    
+    for b in panel.buttons:
+        if b.iconBg and b.iconBg.name.endswith('selected'):
+            if b.value == v.get("switch_fan-auto-on", FAN_AUTO):
+                b.bg = 'selected'
+            else:
+                b.bg = 'unselected'
+    panel.static = True
+
+def screen_clock_draw(panel): # normal display
+    global v
     
     z = get_display_time(datetime.datetime.now())
-    try:
-        fontsugsz0 = centerMaxText(screen, z, fgcolor, (20, 30, 280, 160), allfonts[v['FontIndex']], fontsugsz0)
-    except IndexError:
-        v['FontIndex'] = 1
-        fontsugsz0 = centerMaxText(screen, z, fgcolor, (20, 30, 280, 160), allfonts[0], fontsugsz0)
+    v['fontsize_clock_0'] = centerMaxText(screen, z, fgcolor, (20, 30, 280, 160), allfonts[v['FontIndex']], v.get('fontsize_clock_0', 82))
 
 ###############################################################################################################
 
 panels = {
-    "main": Panel("main", False, screen_main_draw, 
-        [Button((0,  0, 320, 240), bg='box', color=(0,0,0), cb=screen_main_cb, value=1),
+    "main": Panel("main", screen_main_draw, 
+        [Button((0,  0, 320, 240), bg='box', color=(0,0,0)),
         Button((50, 20, 160, 120), color=(20,20,20)),
         Button((230, 20, 60, 60), bg='up', cb=screen_main_cb, value=2),
         Button((230, 90, 60, 60), bg='down', cb=screen_main_cb, value=3),
         Button((65, 210, 30, 30), bg='blank30x30', value=1),
         Button((95, 210, 30, 30), bg='blank30x30', value=2),
-        Button((0, 180, 60, 60), bg='left', cb=screen_fb_cb, value=3),
+        Button((125, 210, 30, 30), bg='blank30x30', value=3),
+        Button((155, 210, 30, 30), bg='blank30x30', value=4),
+        Button((0, 180, 60, 60), bg='left', cb=screen_fb_cb, value=4),
         Button((260, 180, 60, 60), bg='right', cb=screen_fb_cb, value=2)]),
-    "system-function": Panel("system-function", False, screen_sysfunc_draw, 
-        [Button((0,  0, 320, 240), bg='box', color=(80,0,80)),
-        Button((0, 0, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=3),
-        Button((0, 70, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=0),
-        Button((160, 0, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=1),
-        Button((160, 70, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=2),
+    "system_function": Panel("system_function", screen_sysfunc_draw, 
+        [Button((0,  0, 320, 240), bg='box', color=(0,0,0)),
+        Button((0, 40, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=3),
+        Button((0, 115, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=0),
+        Button((160, 40, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=1),
+        Button((160, 115, 60, 60), bg='unselected', cb=screen_sysfunc_cb, value=2),
         Button((0, 180, 60, 60), bg='left', cb=screen_fb_cb, value=1),
         Button((90, 180, 140, 60), bg='ok', cb=screen_fb_cb, value=1),
         Button((260, 180, 60, 60), bg='right', cb=screen_fb_cb, value=3)]),
-    "empty": Panel("empty", False, None, 
-        [Button((0,  0, 320, 240), bg='box', color=(0,0,0), cb=screen_empty_cb, value=1),
+    "fan_function": Panel("fan_function", screen_fanfunc_draw, 
+        [Button((0,  0, 320, 240), bg='box', color=(0,0,0)),
+        Button((0, 60, 60, 60), bg='unselected', cb=screen_fanfunc_cb, value=0),
+        Button((160, 60, 60, 60), bg='unselected', cb=screen_fanfunc_cb, value=1),
         Button((0, 180, 60, 60), bg='left', cb=screen_fb_cb, value=2),
         Button((90, 180, 140, 60), bg='ok', cb=screen_fb_cb, value=1),
-        Button((260, 180, 60, 60), bg='right', cb=screen_fb_cb, value=1)]),
+        Button((260, 180, 60, 60), bg='right', cb=screen_fb_cb, value=4)]),
+    "clock": Panel("clock", screen_clock_draw, 
+        [Button((0,  0, 320, 240), bg='box', color=(0,0,0)),
+        Button((0, 180, 60, 60), bg='left', cb=screen_fb_cb, value=3),
+        Button((90, 180, 140, 60), bg='ok', cb=screen_fb_cb, value=1),
+        Button((260, 180, 60, 60), bg='right', cb=screen_fb_cb, value=1)])
 }
 
 ###############################################################################################################
@@ -344,11 +409,11 @@ panels = {
 
 def log_info(msg):
     syslog.syslog(syslog.LOG_INFO, msg)
-    if DEBUG: print msg
+    if DEBUG: print datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f ') + msg
 
 def log_error(msg):
     syslog.syslog(syslog.LOG_ERR, msg)
-    if DEBUG: print msg
+    if DEBUG: print datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f ') + msg
 
 def killitwithfire(n, stack):
     write_persistent_vars()
@@ -513,10 +578,59 @@ def centerMaxText(surface, text, color, rectTP, fontname, fontsizesuggestion, co
 
 def act_on_temp(when):
     global v
-    global current_temp
-    global gpio
     
-    comparable_temp = current_temp + v.get("sensor_compensation", 0.0)
+    # simple fan
+    if v.get("switch_fan-auto-on", FAN_AUTO) == FAN_AUTO and v["relays"]["G"]["active"] \
+            and (when - v["relays"]["G"]["last-on"]) > datetime.timedelta(0, v.get("minimum_fan_on_secs", 240)):
+        log_info("fan is on but set to automatic, so turning it off")
+        gpio.digitalWrite(v["relays"]["G"]["gpio"], 0)
+        v["relays"]["G"]["last-off"] = when
+        v["relays"]["G"]["active"] = False
+    if v.get("switch_fan-auto-on", FAN_AUTO) == FAN_ON and not v["relays"]["G"]["active"] \
+            and (when - v["relays"]["G"]["last-off"]) > datetime.timedelta(0, v.get("minimum_fan_off_secs", 240)):
+        log_info("fan is automatic but set to on, so turning it on")
+        v["relays"]["G"]["active"] = True
+        v["relays"]["G"]["last-on"] = when
+        gpio.digitalWrite(v["relays"]["G"]["gpio"], 1)
+
+    # safety, did the mode switch? heating disabled?
+    if (v.get("switch_heat-off-cool", MODE_OFF) == MODE_OFF or v.get("switch_heat-off-cool", MODE_OFF) == MODE_COOL) \
+            and (v["relays"]["W1"]["active"] or v["relays"]["W2"]["active"] or v["relays"]["W3"]["active"]):
+        if v["relays"]["W3"]["active"] \
+                and (when - v["relays"]["W3"]["last-on"]) > datetime.timedelta(0, v.get("minimum_heat3_on_secs", 240)):
+            log_info("stage 3 heating is on but disabled, so turning it off")
+            gpio.digitalWrite(v["relays"]["W3"]["gpio"], 0)
+            v["relays"]["W3"]["last-off"] = when
+            v["relays"]["W3"]["active"] = False
+        if v["relays"]["W2"]["active"] \
+                and (when - v["relays"]["W2"]["last-on"]) > datetime.timedelta(0, v.get("minimum_heat2_on_secs", 240)):
+            log_info("stage 2 heating is on but disabled, so turning it off")
+            gpio.digitalWrite(v["relays"]["W2"]["gpio"], 0)
+            v["relays"]["W2"]["last-off"] = when
+            v["relays"]["W2"]["active"] = False
+        if v["relays"]["W1"]["active"] \
+                and (when - v["relays"]["W1"]["last-on"]) > datetime.timedelta(0, v.get("minimum_heat1_on_secs", 240)):
+            log_info("stage 1 heating is on but disabled, so turning it off")
+            gpio.digitalWrite(v["relays"]["W1"]["gpio"], 0)
+            v["relays"]["W1"]["last-off"] = when
+            v["relays"]["W1"]["active"] = False
+    # safety, did the mode switch? cooling disabled?
+    if (v.get("switch_heat-off-cool", MODE_OFF) == MODE_OFF or v.get("switch_heat-off-cool", MODE_OFF) == MODE_HEAT) \
+            and (v["relays"]["Y1"]["active"] or v["relays"]["Y2"]["active"]):
+        if v["relays"]["Y2"]["active"] \
+                and (when - v["relays"]["Y2"]["last-on"]) > datetime.timedelta(0, v.get("minimum_cool2_on_secs", 240)):
+            log_info("stage 2 cooling is on but disabled, so turning it off")
+            gpio.digitalWrite(v["relays"]["Y2"]["gpio"], 0)
+            v["relays"]["Y2"]["last-off"] = when
+            v["relays"]["Y2"]["active"] = False
+        if v["relays"]["Y1"]["active"] \
+                and (when - v["relays"]["Y1"]["last-on"]) > datetime.timedelta(0, v.get("minimum_cool1_on_secs", 240)):
+            log_info("stage 1 cooling is on but disabled, so turning it off")
+            gpio.digitalWrite(v["relays"]["Y1"]["gpio"], 0)
+            v["relays"]["Y1"]["last-off"] = when
+            v["relays"]["Y1"]["active"] = False
+    
+    comparable_temp = float(display_temp) + v.get("sensor_compensation", 0.0)
     #log_info("target: {0:3.1f}, temp: {1:3.1f}, diff: {2:3.1f}".format(v['target_temp'], comparable_temp, comparable_temp - v['target_temp']))
     
     # is the environment lower/colder than our target?
@@ -541,7 +655,7 @@ def act_on_temp(when):
                 v["relays"]["Y1"]["last-off"] = when
                 v["relays"]["Y1"]["active"] = False
         # adjust automatic
-        if v.get("auto_hot_or_cold_mode", MODE_HEAT) == MODE_COOL and v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO \
+        if v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO and v.get("auto_hot_or_cold_mode", MODE_HEAT) == MODE_COOL \
                 and (v.get('target_temp', 72.0) - comparable_temp) > v.get("hot_cold_hysteresis", 5.0):
             log_info("it's cold (target: {0:3.1f}, now: {1:3.1f}), switching to heat (automatic) mode".format(v['target_temp'], comparable_temp))
             v["auto_hot_or_cold_mode"] = MODE_HEAT
@@ -618,7 +732,7 @@ def act_on_temp(when):
                 v["relays"]["W1"]["last-off"] = when
                 v["relays"]["W1"]["active"] = False
         # adjust automatic
-        if v.get("auto_hot_or_cold_mode", MODE_HEAT) == MODE_HEAT and v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO \
+        if v.get("switch_heat-off-cool", MODE_OFF) == MODE_AUTO and v.get("auto_hot_or_cold_mode", MODE_HEAT) == MODE_HEAT \
                 and (comparable_temp - v.get('target_temp', 72.0)) > v.get("hot_cold_hysteresis", 5.0):
             log_info("it's hot (target: {0:3.1f}, now: {1:3.1f}), switching to cool (automatic) mode".format(v['target_temp'], comparable_temp))
             v["auto_hot_or_cold_mode"] = MODE_COOL
@@ -721,6 +835,7 @@ if __name__ == '__main__':
     log_info("Assigning Buttons")
     for p in panels.values():
         for b in p.buttons:
+            b.panel = p
             for i in icons:
                 if b.bg == i.name:
                     b.iconBg = i # Assign Icon to Button
